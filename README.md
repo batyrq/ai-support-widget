@@ -1,60 +1,63 @@
 # AI Support Widget
 
-> An embeddable AI support chat. Drop one `<script>` tag on any website → a chat
-> bubble appears in the corner → the bot answers visitors from the company's docs,
-> with citations and streaming responses.
+### Embeddable AI support widget — drop one `<script>` tag on any site.
 
-Built as a single **Next.js** app (frontend + API routes), backed by **PostgreSQL +
-pgvector**. Embeddings run locally (no key); answers come from **Groq** with
-**BYOK** (bring your own key). The widget renders inside a **Shadow DOM**, so its
-styles never clash with the host site.
+A chat bubble appears in the corner, and the bot answers your visitors from your
+own docs — streamed, with citations. One Next.js app, Postgres + pgvector for
+search, Groq for answers, and a **Shadow DOM** widget that never clashes with the
+host site's styles.
 
-**Live demo:** coming soon · **Run it locally:** see [Run locally](#run-locally).
-
-<!-- Replace docs/widget.svg with a real screenshot/GIF of the widget on a site -->
+<!-- ▶ Replace docs/widget.svg with your recorded demo GIF (e.g. docs/demo.gif from /demo) -->
 <p align="center">
-  <img src="docs/widget.svg" alt="Support chat widget embedded on a company site" width="760">
+  <img src="docs/widget.svg" alt="Embeddable AI support widget on a company site" width="760">
+  <br>
+  <sub><b>Embeddable AI support widget — drop one <code>&lt;script&gt;</code> tag on any site.</b></sub>
 </p>
 
----
-
-## What's inside
-
-1. **`public/widget.js`** — a self-contained embeddable script. Renders a chat
-   bubble + window in a **Shadow DOM**, streams answers over SSE, shows citations.
-   Embed with `<script src=".../widget.js" data-bot-id="..."></script>`.
-2. **Dashboard** (Next.js) — create a bot, upload docs (PDF/TXT/MD → chunked →
-   embedded → pgvector), copy the embed snippet, preview-chat the bot, read
-   conversation logs, set your Groq key.
-3. **API routes** — `/api/chat` (RAG + Groq + SSE + citations), `/api/documents`,
-   `/api/bots`.
-4. **Demo page** (`/demo`) — a fake "company site" with the widget already embedded,
-   so you can see exactly how it looks for a real visitor.
+> **Live demo:** coming soon.
 
 ---
 
-## Architecture
+## How it works
+
+**1. Load your docs** → in the dashboard, create a bot and upload PDF / TXT / MD.
+They're chunked, embedded locally (384-d), and stored in pgvector.
+
+**2. Get your `<script>` snippet** → copy a one-line embed snippet with your bot id
+and paste it on any website.
+
+**3. The widget answers visitors** → the bubble streams answers grounded in your
+docs, each with citations to the source files.
 
 ```mermaid
 flowchart LR
-    HOST["🌐 Any website<br/>&lt;script data-bot-id&gt;"]
-    W["widget.js<br/>Shadow DOM · bubble + chat"]
-    API["Next.js API routes<br/>/api/chat · /api/documents · /api/bots"]
-    EMB["Local embeddings<br/>all-MiniLM-L6-v2 · 384-d"]
-    PG[("PostgreSQL + pgvector")]
+    V["👤 Visitor<br/>on any website"]
+    W["💬 widget.js<br/>(Shadow DOM)"]
+    API["Next.js API<br/>/api/chat (SSE)"]
+    PG[("pgvector<br/>RAG search")]
     GROQ["Groq LLM<br/>Llama 3.3 70B"]
+    A["✅ Streamed answer<br/>+ citations"]
 
-    HOST --> W
-    W -->|POST /api/chat · SSE| API
-    API --> EMB
-    EMB -->|cosine KNN| PG
-    API -->|RAG context + stream| GROQ
-    GROQ -->|tokens| API
-    API -->|token / citations / done| W
+    V --> W --> API
+    API -->|embed question · top-k cosine| PG
+    PG -->|relevant chunks| API
+    API -->|context + question| GROQ
+    GROQ -->|tokens| API --> W --> A
 ```
 
-**RAG flow:** question → embed → top-k cosine search in pgvector → prompt Groq with
-the retrieved context → stream the answer back token by token → attach citations.
+---
+
+## Embed on your site
+
+Paste this before `</body>` on any page — that's the whole integration:
+
+```html
+<script src="https://your-domain.com/widget.js" data-bot-id="YOUR_BOT_ID"></script>
+```
+
+- `data-bot-id` selects which bot (and which knowledge base) answers.
+- The widget figures out the API URL from its own `src`, so it works cross-origin.
+- The dashboard gives you the exact snippet with the real bot id, ready to copy.
 
 ---
 
@@ -63,70 +66,45 @@ the retrieved context → stream the answer back token by token → attach citat
 You need **Docker** (for Postgres), **Node 18+**, and a free **Groq API key**.
 
 ```bash
-# 1. Clone + install
 git clone https://github.com/batyrq/ai-support-widget.git
 cd ai-support-widget
 npm install
 
-# 2. Start Postgres (only the DB runs in Docker; Next.js runs via npm)
 cp .env.example .env
-docker compose up -d postgres
+docker compose up -d postgres      # only the DB runs in Docker
 
-# 3. Apply schema + seed a demo bot with documents
-npx prisma migrate deploy
-npm run seed
+npx prisma migrate deploy          # schema + CREATE EXTENSION vector
+npm run seed                       # demo bot "Acme Cloud" with docs
 
-# 4. Run the app
 npm run dev
 # Dashboard → http://localhost:3000
-# Demo site → http://localhost:3000/demo
+# Demo site → http://localhost:3000/demo   (fake company site with the widget)
 ```
 
-### Making the bot answer
+**Live demo:** coming soon.
 
-There are **two ways** the Groq key reaches the server — by design, because an
-embeddable widget on a public page can't safely carry a secret:
+### Where the Groq key comes from (BYOK)
 
-| Where | How the key is provided |
-|-------|-------------------------|
-| **Dashboard preview chat** | You paste your key in the dashboard → stored in your browser (`localStorage`) → sent per request in the `x-groq-key` header. **BYOK.** |
-| **Embedded widget / demo page** | The widget sends **no** key. The server uses `GROQ_API_KEY` from `.env`. So to see the demo widget answer, set `GROQ_API_KEY` in `.env` and restart. |
+An embeddable widget on a public page can't safely carry a secret, so:
 
-In both cases the key is **never stored in the database or logged**.
+| Context | Key source |
+|---------|-----------|
+| Dashboard preview chat | Your key, pasted in the dashboard → stored in your browser → sent as `x-groq-key`. |
+| Embedded widget / `/demo` | No key from the page — the server uses `GROQ_API_KEY` from `.env`. Set it to make the demo widget answer. |
+
+The key is **never stored in the database or logged**.
 
 ---
 
-## Embed on your site
+## Features
 
-```html
-<script src="http://localhost:3000/widget.js" data-bot-id="YOUR_BOT_ID"></script>
-```
-
-Copy the ready-to-paste snippet (with the real bot id) from the bot's page in the
-dashboard.
-
----
-
-## How it works
-
-**RAG** (`src/lib/retrieval.ts`, `src/lib/embeddings.ts`)
-Files are chunked (~900 chars, 150 overlap), embedded locally to 384-d vectors, and
-stored in a `vector(384)` column. Search is cosine KNN (`embedding <=> query`) with
-an HNSW index.
-
-**Widget embedding** (`public/widget.js`)
-The script reads `data-bot-id` from its own tag, derives the API origin from its
-`src` (so it works cross-origin), and talks to `/api/chat` (CORS-enabled). A visitor
-id + conversation id keep a single dialog grouped in the logs.
-
-**Shadow DOM** (`public/widget.js`)
-The whole UI lives under `host.attachShadow({ mode: 'open' })` with its styles
-scoped inside the shadow root — the host site's CSS can't leak in, and the widget's
-CSS can't leak out. That's what makes it safe to drop onto *any* site.
-
-**BYOK** (`src/lib/groq.ts`, `src/app/api/chat/route.ts`)
-The key is resolved from the `x-groq-key` header (preferred) or the server
-`GROQ_API_KEY` fallback, used only to call Groq, and never persisted or logged.
+- 🧩 **One-tag embed** — `<script ... data-bot-id>`, nothing else.
+- 🛡️ **Shadow DOM** — fully isolated styles; safe on any site.
+- 📚 **RAG with citations** — answers cite the exact source documents.
+- ⚡ **Streaming** — token-by-token over SSE.
+- 🔑 **BYOK** — bring your own Groq key; never persisted.
+- 🧠 **Local embeddings** — no embedding API key needed.
+- 🗂️ **Dashboard** — bots, doc upload, embed snippet, preview chat, conversation logs.
 
 ---
 
@@ -143,17 +121,26 @@ The key is resolved from the `x-groq-key` header (preferred) or the server
 
 ---
 
-## Project structure
+## Under the hood
+
+- **RAG** (`src/lib/retrieval.ts`, `src/lib/embeddings.ts`) — chunk (~900 chars,
+  150 overlap) → 384-d embedding → `vector(384)` column → cosine KNN with an HNSW index.
+- **Widget** (`public/widget.js`) — reads `data-bot-id`, derives the API origin from
+  its `src`, talks to the CORS-enabled `/api/chat`, keeps a visitor + conversation id.
+- **Shadow DOM** — the whole UI lives under `attachShadow({ mode: 'open' })` with
+  scoped styles, so host CSS can't leak in and widget CSS can't leak out.
+- **BYOK** (`src/lib/groq.ts`) — key from `x-groq-key` header or `GROQ_API_KEY`
+  fallback; used only to call Groq, never persisted or logged.
 
 ```
 ai-support-widget/
 ├── docker-compose.yml         # postgres + pgvector only
-├── prisma/                    # schema, migration, seed
+├── prisma/                    # schema, migration, seed (demo bot)
 ├── public/widget.js           # embeddable Shadow-DOM widget
 └── src/
     ├── app/
-    │   ├── page.tsx           # dashboard: bots list
-    │   ├── bots/[id]/         # bot: docs, snippet, preview chat, logs
+    │   ├── page.tsx           # dashboard: bots
+    │   ├── bots/[id]/         # docs, snippet, preview chat, logs
     │   ├── demo/              # fake company site with the widget
     │   └── api/               # chat (SSE) · documents · bots
     └── lib/                   # embeddings · chunking · retrieval · groq
