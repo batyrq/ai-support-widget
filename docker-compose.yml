@@ -1,0 +1,26 @@
+services:
+  # Единственный контейнер проекта — PostgreSQL с pgvector.
+  # Сам Next.js запускается обычным `npm run dev` / `npm start`, не в Docker.
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: asw-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-asw}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-asw_password}
+      POSTGRES_DB: ${POSTGRES_DB:-asw}
+    ports:
+      # Хостовый порт 5434, чтобы не конфликтовать с другими локальными Postgres.
+      - "${POSTGRES_PORT:-5434}:5432"
+    volumes:
+      - asw_pgdata:/var/lib/postgresql/data
+      # Включаем расширение pgvector при первой инициализации БД.
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-asw} -d ${POSTGRES_DB:-asw}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+volumes:
+  asw_pgdata:
